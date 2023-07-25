@@ -55,7 +55,7 @@ struct Data
 
 int main()
 {
-	std::unique_ptr<Data> p_data(new Data({"Whale.Park18", 5}));
+	std::unique_ptr<Data> p_data(new Data({"Whale.Park18", 5});
 	cout << (*p_data).size << endl;
 	cout << p_data->name << endl;
 }
