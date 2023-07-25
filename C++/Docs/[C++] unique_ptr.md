@@ -108,7 +108,7 @@ struct Data
 
 int main()
 {
-	unique_ptr<Data> p_data = make_unique<Data> Data({ "Whale.Park18", 5 }));
+	unique_ptr<Data> p_data = make_unique<Data>(Data({ "Whale.Park18", 5 }));
 }
 ```
 
