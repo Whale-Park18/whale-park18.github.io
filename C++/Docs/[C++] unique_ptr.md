@@ -1,208 +1,411 @@
-> 본 글은  `unique_ptr` 에 대한 설명입니다.
->
-> `unique_ptr `클래스가 갖는 멤버 변수나 함수에 대한 자세한 설명은 다른 글에 작성하겠습니다.
+> 본 글은 `std::unique_ptr`의 소개와 간단한 사용법을 중심으로 설명합니다.
+> 
+> `std::unique_ptr` 클래스가 갖는 멤버 변수나 함수에 대한 자세한 내용은 시간이 되면 나중에 작성하겠습니다.
 
 # 설명
 
-## `unique_ptr`이란?
+## `std::unique_ptr`란?
 
-`unique_ptr`은 *하나의 자원 객체는 하나의 포인터 객체만 소유하는 엄격한 소유권 개념을 도입한 스마트 포인터*입니다. `unique_ptr`을 사용하기 위해선 `memory` 헤더를 포함해야 합니다.
+`std::unique_ptr`는 <u>가리키는 자원 객체에 대한 유일한 소유권을 갖는 독점 소유권(exclusive ownership) 의미론을 체현한 스마트 포인터</u>입니다. `std::unique_ptr`은 생 포인터(raw pointer)와 같은 크기로 볼 수 있으며, 대부분의 연산(역참조를 비롯해서)에서 `std::unique_ptr`는 생 포인터와 동일한 명령을 실행할 수 있습니다. 즉, 메모리와 CPU 주기가 넉넉하지 않은 상황에서도 생 포인터가 충분히 작고 충분히 빠른 상황이라면 `std::unique_ptr`를 사용해도 비슷한 성능을 낼 수 있습니다.
 
-`uniaue_ptr`은 자원 객체의 소유권을 가지고 있을 때만, 자원 객체를 해제할 수 있습니다. `unique_ptr` 포인터 객체는 `std::move` 함수를 통해 소유권을 이동시킬 수 있지만, 복사할 수는 없습니다. `std::move` 함수로 소유권이 이전된 포인터 객체는 더 이상 해당 객체를 소유하지 않게 설정됩니다.
+`std::unique_ptr`는 <u>복사를 허용하지 않습니다(복사를 허용할 경우 같은 자원을 가리킬 수 있게 되면서 미정의 행동이 발생합니다). 하지만 소유권 이전은 허용합니다.</u> 즉, 자원 객체의 소유권을 집 명의처럼 복사할 수는 없지만 이전시킬 수 있으며 소유권을 이전 시키려면 `std::move` 함수를 사용해야 합니다. 소유권이 이전되면 원본 포인터 객체는 널을 가리키게되며 대상 포인터 객체가 자원 객체를 가리키게 됩니다.
 
->  `unique_ptr`은 이러한 특성 때문에 클래스나 구조체의 멤버 변수로 포인터가 필요할 경우에 자주 사용됩니다.
+`std::unique_ptr`는 자원 객체를 소유하고 있을 때만, 자원 객체를 해제할 수 있는 권한을 가집니다. 또한 포인터 객체는 생성할 때 커스텀 삭제자(custom deleter)를 사용하도록 지정할 수도 있습니다. 다만, 커스텀 삭제자를 지정하게 되면 커스텀 삭제자를 위한 함수 포인터가 필요하므로 `std::unique_ptr`의 크기가 1 워드에서 2 워드로 증가하게 됩니다.
 
-## 왜 엄격한 소유권을 갖는가?
+`std::unique_ptr`는 개별 객체(`std::unique_ptr<T>`)와 배열(`std::unique_ptr<T[]>`) 형태 모두 지원합니다. `std::unique_ptr` API는 사용 대상에게 잘 맞는 형태로 설계되어 있어 개별 객체 형태는 색인 적용 연산(`operator[]`)를 제공하지 않으며, 배열 형태는 역 참조 연산자들(`operator*`와 `operator->`)제공하지 않습니다.
 
-`unique_ptr`이 이러한 특성을 갖게된 이유는 **double-free** 오류에 있습니다.
+`std::unique_ptr`에서 배열 형태를 지원하지만 사용을 권장하지 않습니다. 배열 형태의 포인터 객체를 생성하기 보단 `std::array`나 `std::vector`, `std::string`을 사용하는 것이 거의 항상 더 나은 선택이기 때문입니다.
 
-double-free 오류란 이미 해제한 메모리를 다시 해제하는 경우 발생하는 오류로 다음과 같은 상황에서 자주 발생합니다.
+## 왜 엄격한 소유권을 지니는가?
+
+`std::unique_ptr`가 이렇게 설계된 이유는 **double-free** 오류에 있습니다.
+
+double-free 오류란 이미 해제한 자원 객체를 다시 해제하는 경우 발생하는 오류로 다음과 같은 상황에서 자주 발생합니다.
 
 ```cpp
-Data* p_data1 = new Data();
-Data* p_data2 = p_data1;
+int* ptr1 = new int();
+int* ptr2 = ptr1;
 
-// p_data1 사용 끝, 해제
-delete P_data1;
+// ...
+
+// ptr1 사용 끝, 해제
+delete ptr1;
 
 // ..
 
-// p_data2 사용 끝, 해제
-delete p_data2;
+// ptr2 사용 끝, 해제
+delete ptr2;
 ```
 
-`p_data1` 포인터와  `p_data2` 포인터가 같은 자원 객체를 가리키고 있고, `delete p_data1`을 통해 자원 객체를 해제시켰습니다. 그런데, `p_data2`가 이미 해제된 자원 객체를 다시 해제시킵니다. 이런 경우 메모리 오류가 발생해, 프로그램이 죽게됩니다.
+동일한 자원 객체를 가리키는 포인터 `ptr1`, `ptr2`가 존재합니다. `ptr1`이 자원 객체를 다 사용해, 해제합니다. `ptr2`는 이 사실을 모르고 있다가 이미 소멸된 자원 객체를 다시 해제하는 불상하가 일어납니다. 이런 경우 메모리 오류가 발생해, 프로그램이 죽게됩니다.
 
-위의 *문제가 발생한 이유는 생성된 자원 객체의 소유권이 명확하지 않고 쉽게 접근할 수 있기 때문*입니다. 만약 처음 초기화된 포인터에게 소유권을 줬다면 위와 같이 같은 객체를 두 번 해제하는 일은 발생하지 않았을 것입니다.
+위의 문제가 발생한 이유는 <u>동적 할당된 자원 객체의 소유권이 명확하지 않고 쉽게 접근할 수 있기 때문</u>입니다. 만약 처음 초기화된 포인터에게만 소유권을 갖고 있었다면 위와 같이 자원 객체를 두 번 해제하는 일은 발생하지 않았을 것입니다.
 
-즉, `unique_ptr`은 소유권이 명확하지 않아 발생하는 오류로부터 안전해지기 위해 엄격한 소유권을 지닌 스마트 포인터로 설계되었습니다.
+즉, `std::unique_ptr`는 소유권이 명확하지 않아 발생하는 오류에 의해 발생하는 미정의 행동에서 벗어나기 위해 독점 소유권 의미론을 체현한 스마트 포인터로 설계된 것입니다.
 
-## `unique_ptr` 사용하기
+## 사용법
 
-### 생성 및 멤버 접근
+> `std::unique_ptr`를 사용하기 위해선 `<memory>` 헤더를 포함해야 합니다.
 
-> 스마트 포인터는 모든 타입에 대한 포인터를 담은 객체여야 하기 때문에 템플릿 클래스로 작성되어 있습니다. 즉, 스마트 포인터는 생성자를 사용해 생성하며,  `operator*`와 `operator->`가 오버로딩되어 있기 때문에 원시 포인터처럼 사용할 수 있습니다.
+### 생성자를 이용한 생성 및 초기화
+
+스마트 포인터는 모든 타입에 대한 자원 객체를 가리킬 수 있어야 하기 때문에 템플릿 클래스로 선언되어 있습니다. 즉, 스마트 포인터는 생성자를 통해 생성 및 초기화를 할 수 있습니다.
 
 ```cpp
 #include <iostream>
 #include <memory>
 
-using namespace std;
-
-struct Data
+class Person
 {
-	string name;
-	unsigned int size;
+private:
+    std::string mName;
+    int mAge;
+
+public:
+    Person(std::string name, int age) : mName(name), mAge(age)
+    {
+        std::cout << "생성자 호출" << std::endl;
+    }
+
+    ~Person()
+    {
+        std::cout << "소멸자 호출" << std::endl;
+    }
+
+    void doSomething()
+    {
+        // ...
+    }
 };
 
 int main()
 {
-	std::unique_ptr<Data> p_data(new Data({"Whale.Park18", 5}));
-	cout << (*p_data).size << endl;
-	cout << p_data->name << endl;
+    std::unique_ptr<Person> uPtr(new Person("whale", 10));
+    (*uPtr).doSomething();
+    uPtr->doSomething();
 }
 ```
 
-### `make_unique`로 생성하기
+위에서 언급했듯이 `std::unique_ptr`는 생 포인터와 동일하게 사용할 수 있게 설계되어 있어 생 포인터처럼 사용하면 됩니다.
 
-`unique_ptr`은 생성자로 초기화 할 수 있습니다. 많은 생성사 중에 주소값을 인자로 받는 생성자가 있습니다. 
+또한 `std::unique_ptr`(와 `shared_ptr`)는 기본적으로 자원 객체의 해제는 `delete`를 통해서 일어나지만, 위에서 언급했듯이 커스텀 삭제자를 설정할 수 있습니다. 자원 객체의 해제 전, 로그를 기록하는 등의 작업이 필요할 때 사용합니다.
 
-`unique_ptr`은 하나의 자원 객체는 하나의 포인터 객체만 소유할 수 있지만, 만약 다른 포인터 객체가 같은 주소값으로 초기화하는 것이 가능지 의문점이 생깁니다. 
+커스텀 삭제자를 설정하기 위해서는 포인터 객체를 선언할 때, `std::unique_ptr`의 두 번째 템플릿 형을 설정하고 생성자의 두 번째 인자로 함수 객체를 전달해야 합니다.
 
 ```cpp
 #include <iostream>
 #include <memory>
 
-using namespace std;
+class Person
+{
+private:
+    std::string mName;
+    int mAge;
+
+public:
+    Person(std::string name, int age) : mName(name), mAge(age)
+    {
+        std::cout << "생성자 호출" << std::endl;
+    }
+
+    ~Person()
+    {
+        std::cout << "소멸자 호출" << std::endl;
+    }
+
+    std::string GetName() { return mName; }
+    int GetAge() { return mAge; }
+};
+
+void FuncDeleter(Person* pPerson)
+{
+    std::cout << "함수 커스텀 소멸자 호출" << std::endl;
+
+    delete pPerson;
+}
 
 int main()
 {
-	int* ptr = new int(5);
-	unique_ptr<int> p_unique1(ptr);
-	unique_ptr<int> p_unique2(ptr);
+    auto lambdaDeleter = [](Person* pPerson) {
+        std::cout << "람다 커스텀 삭제자 호출" << std::endl;
 
-	*p_unique1 = 10;
+        delete pPerson;
+    };
 
-	cout << "p_unique1: " << *p_unique1 << endl;
-	cout << "p_unique2: " << *p_unique2 << endl;
+    std::unique_ptr<Person, decltype(lambdaDeleter)> uPtr1(new Person("whale", 10), lambdaDeleter);
+    std::unique_ptr<Person, decltype(&FuncDeleter)> uPtr2(new Person("park18", 20), FuncDeleter);
 }
 ```
 
 ```
 [출력 결과]
-10
-10
-<런타임 오류 발생>
+
+생성자 호출
+생성자 호출
+함수 커스텀 소멸자 호출
+소멸자 호출
+람다 커스텀 삭제자 호출
+소멸자 호출
 ```
 
-놀랍게도 다른 포인터 객체가 같은 주소값으로 초기화하는 것이 가능합니다. 이렇게 된다면 `unique_ptr`의 목적과 다르게 하나의 자원 객체를 두 개의 포인터 객체가 소유하는 것은 물론이고 double-free 문제까지 발생하게 됩니다.
+`lambdaDeleter`와 `FuncDeleter`가 `Person`에 대한 커스텀 삭제자입니다. <u>모든 커스텀 삭제자 함수는 파괴할 자원 객체를 가리키는 포인터 하나를 받으며, 그 객체를 파괴하는데 필요한 일들을 수행</u>합니다. 지금 예제에서 삭제자는 별도의 일을 하고 있지는 않지만 로그를 남기거나 세이브 파일을 저장하는 등 삭제 전에 필요한 일을 수행하는 코드를 작성할 수 있습니다. 모든 일을 마친 후에는 인자로 넘겨받은 자원 객체를 반드시 해제해야 합니다.
 
-C++14에서는 안전하게 `unique_ptr` 객체를 생성하기 위해 `std::make_unique` 함수를 제공합니다. `std::make_unique` 함수는 생성할 타입의 생성자에 맞는 인자들을 전달받고 전달 받은 인자로 `unique_ptr` 객체를 만들어 반환합니다. 때문에 위의 예제처럼 같은 주소값을 갖는 포인터 객체를 생성하는 실수에서 멀어질 수 있습니다.
+삭제자 함수는 통상적인 함수를 작성해 전달하는 방법도 있지만 람다 표현식을 이용해 작성하는 것이 더 효율적입니다.
+
+커스텀 삭제자를 사용하기 위해 `std::unique_ptr`의 두 번째 템플릿 형을 지정해야 하며 이를 위해 `decltype` 키워드를 사용합니다. `decltype` 키워드는 `auto` 키워드와 비슷한 개념으로 주어진 표현식의 타입을 컴파일러가 추론해 결정하도록 합니다.
+
+최상위 기본 클래스로 하위 파생 클래스를 관리할 목적으로 포인터 객체를 생성하는 것이라면 삭제자가 인자로 전달받는 것이 기본 클래스 타입이기 때문에 기본 클래스의 소멸자를 가상화 시켜야합니다. 만약 기반 클래스의 소멸자를 가상화 시키지 않았다면 기본 클래스의 소멸자만 호출되어 미정의 행위가 발생하게됩니다.
 
 ```cpp
 #include <iostream>
 #include <memory>
 
-using namespace std;
-
-struct Data
+class BaseClass
 {
-	string name;
-	unsigned int size;
+public:
+    BaseClass()
+    {
+        std::cout << "(기본 클래스) 생성자 호출" << std::endl;
+    }
+
+    virtual ~BaseClass()
+    {
+        std::cout << "(기본 클래스) 소멸자 호출" << std::endl;
+    }
+};
+
+class DerivedClass1 : public BaseClass
+{
+public:
+    DerivedClass1()
+    {
+        std::cout << "(파생 클래스1) 생성자 호출" << std::endl;
+    }
+
+    ~DerivedClass1()
+    {
+        std::cout << "(파생 클래스1) 소멸자 호출" << std::endl;
+    }
+};
+
+class DerivedClass2 : public BaseClass
+{
+public:
+    DerivedClass2()
+    {
+        std::cout << "(파생 클래스2) 생성자 호출" << std::endl;
+    }
+
+    ~DerivedClass2()
+    {
+        std::cout << "(파생 클래스2) 소멸자 호출" << std::endl;
+    }
 };
 
 int main()
 {
-	unique_ptr<Data> p_data = make_unique<Data>(Data({ "Whale.Park18", 5 }));
+    auto deleter = [](BaseClass* pBaseClass) {
+        std::cout << "커스텀 삭제자 호출" << std::endl;
+
+        delete pBaseClass;
+    };
+
+    std::unique_ptr<DerivedClass1, decltype(deleter)> uPtr1(new DerivedClass1, deleter);
+    std::unique_ptr<DerivedClass2, decltype(deleter)> uPtr2(new DerivedClass2, deleter);
 }
 ```
 
-### 복사하기
+```
+[출력 결과]
 
-`unique_ptr`은 엄격한 소유권을 갖고 있다 설명했습니다. 그렇다면 복사를 시도할 경우 어떻게 작동할까요?
+(기본 클래스) 생성자 호출
+(파생 클래스1) 생성자 호출
+(기본 클래스) 생성자 호출
+(파생 클래스2) 생성자 호출
+커스텀 삭제자 호출
+(파생 클래스2) 소멸자 호출
+(기본 클래스) 소멸자 호출
+커스텀 삭제자 호출
+(파생 클래스1) 소멸자 호출
+(기본 클래스) 소멸자 호출
+```
+
+### `std::make_unique`를 사용한 생성 및 초기화
+
+`std::unique_ptr`를 생성자로 초기화하기 위해선 반드시 주소값이 필요합니다. 만약 인자로 다른 포인터 객체가 가리키고 있는 자원 객체의 주소를 전달하여 초기화하는 것이 가능한지 의문이 생깁니다.
 
 ```cpp
 #include <iostream>
 #include <memory>
 
-using namespace std;
-
-struct Data
-{
-	string name;
-	unsigned int size;
-};
-
 int main()
 {
-	unique_ptr<Data> p_data(new Data({"Whale.Park18", 5}));
-	unique_ptr<Data> p_data_copy = p_data;
+    int* pNumber = new int(5);
+    std::unique_ptr<int> uPtr1(pNumber);
+    std::unique_ptr<int> uPtr2(pNumber);
+    std::unique_ptr<int> uPtr3;
+    uPtr3.reset(pNumber);
+
+    std::cout << "uPtr1: " << uPtr1.get() << std::endl;
+    std::cout << "uPtr2: " << uPtr2.get() << std::endl;
+    std::cout << "uPtr3: " << uPtr3.get() << std::endl;
 }
 ```
 
 ```
-[오류 목록]
+[출력 결과]
+uPtr1: 01450428
+uPtr2: 01450428
+uPtr3: 01450428
+
+<런타임 오류>
+```
+
+놀랍게도 서로 다른 포인터 객체가 같은 자원 객체를 가리킬 수 있게 초기화하는 것이 가능합니다. 이렇게 되면 `std::unique_ptr`는 목적과 다르게 하나의 자원 객체를 여러 개의 포인터 객체가 소유하게 되며 double-free 문제까지 발생하게 됩니다.
+
+> `std::unique_ptr`가 다른 자원 객체를 가리키고 싶게 하고 싶다면 `reset` 멤버 함수를 호출하면 됩니다.
+>
+> `std::unique_ptr`가 현재 가리키고 있는 자원 객체의 주소를 알고 싶으면 `get` 멤버 함수를 호출하면 됩니다.
+
+이런 상황을 피하기 위해 C++14에서는 `std::make_unique` 함수를 제공합니다. `std::make_unique` 함수는 자원 객체의 생성자에게 전달할 인자들을 전달 받고 내부에서 `std::unique_ptr`를 생성해 반환하기 때문에 안전하게 포인터 객체를 생성할 수 있습니다.
+
+```cpp
+#include <iostream>
+#include <memory>
+
+class Person
+{
+private:
+    std::string mName;
+    int mAge;
+
+public:
+    Person(std::string name, int age) : mName(name), mAge(age)
+    {
+        std::cout << "생성자 호출" << std::endl;
+    }
+
+    ~Person()
+    {
+        std::cout << "소멸자 호출" << std::endl;
+    }
+
+    void DoSomething()
+    {
+        // ...
+    }
+};
+
+int main()
+{
+    std::unique_ptr<Person> uPtr = std::make_unique<Person>("whale", 10);
+    uPtr->DoSomething();
+}
+```
+
+이렇게 안전하게 포인터 객체를 생성해주는 `std::make_unique` 함수에도한 가지 단점이 존재합니다. 바로 커스텀 삭제자를 설정할 수 없다는 것입니다. 때문에 커스텀 삭제자를 지정해야 하는 경우에는 어쩔 수 없이 생성자를 통해 초기화해야 합니다.
+
+> 같은 스마트 포인터인 `std::shared_ptr`의 경우에는 C++14가 아닌 C++11에 `std::make_shared` 함수가 존재합니다. 아마 C++11에는 이런 상황을 예상하지 못해 제외시킨 것 같습니다.
+
+> C++11 환경에서 개발 중이라면 `std::make_unique`의 기본 버전을 직접 작성하는 것이 어렵지 않기 때문에 걱정하지 않아도 됩니다.
+>
+> ```cpp
+> template<typename T, typename... Ts>
+> std::unique_ptr<T> make_unique<Ts&... params>
+> {
+>     return std::unique_ptr<T>(new T(std::forward<Ts>(params)...));
+> }
+> ```
+>
+> 단, 직접 구현할 경우 `std::` 네임스페이스를 적성하지 않아야 합니다. 나중에 C++14로 업그레이드 했을 경우 표준 라이브러리와 이름 충돌이 발생하기 때문입니다.
+
+### 복사
+
+`std::unqie_ptr`은 복사할 수 없다고 설명했습니다. 그럼에도 불구하고 복사를 시도할 경우 어떻게 작동할까요?
+
+```cpp
+#include <iostream>
+#include <memory>
+
+class Person
+{
+private:
+    std::string mName;
+    int mAge;
+
+public:
+    Person(std::string name, int age) : mName(name), mAge(age)
+    {
+        std::cout << "생성자 호출" << std::endl;
+    }
+
+    ~Person()
+    {
+        std::cout << "소멸자 호출" << std::endl;
+    }
+};
+
+int main()
+{
+    std::unique_ptr<Person> uPtrOriginal = std::make_unique<Person>("whale", 10);
+    std::unique_ptr<Person> uPtrCopy(uPtrOriginal);
+}
+```
+
+```
+<컴파일 오류>
+
 심각도	코드	설명	프로젝트	파일	줄	비표시 오류(Suppression) 상태
-오류	C2280	'std::unique_ptr<Data,std::default_delete<Data>>::unique_ptr(const std::unique_ptr<Data,std::default_delete<Data>> &)': 삭제된 함수를 참조하려고 합니다.
+오류	C2280	'std::unique_ptr<Person,std::default_delete<Person>>::unique_ptr(const std::unique_ptr<Person,std::default_delete<Person>> &)': 삭제된 함수를 참조하려고 합니다.
 ```
 
 복사를 시도할 경우 위와 같은 오류가 발생하게 됩니다. 위 오류는 삭제된 함수를 사용하려 했을 때, 발생하는 것입니다.
 
 삭제된 함수란 C++11에서 추가된 기능으로 프로그래머가 명시적으로 '이 함수는 사용하지 말 것!'을 표현한 것입니다. 혹시라도 삭제된 함수를 사용할 경우 위와 같이 컴파일 오류가 발생하게 됩니다.
 
-`unique_ptr`의 경우 **유일하게 소유하는 엄격한 소유권** 때문에 복사 생성자와 대입 연산자(복사 기능 한정)를 *명시적으로 삭제*했습니다. 만약 복사 생성자나 대입 연산자를 사용할 수 있다면 유일한 소유권을 갖는 특성이 사라지게 되면서 `unique_ptr`는 존재 의의를 잃게 됩니다.
+`std::unique_ptr`의 경우 **유일하게 소유하는 엄격한 소유권** 때문에 복사 생성자와 대입 연산자(복사 기능 한정)를 *명시적으로 삭제*했습니다. 만약 복사 생성자나 대입 연산자를 사용할 수 있다면 유일한 소유권을 갖는 특성이 사라지게 되면서 `std::unique_ptr`는 존재 의의를 잃게 됩니다.
 
-### 소유권 이전하기
+### `std::move` 함수를 사용한 소유권 이전
 
-`unique_ptr`은 엄격한 소유권으로 복사는 불가능하지만 소유권을 이전할 수 있습니다.
+`std::unique_ptr`는 복사는 불가능 하지만 소유권을 이전할 수 있습니다. 다만, 소유권을 이전하기 위해선, `std::move` 함수를 사용해야 합니다.
 
 ```cpp
 #include <iostream>
 #include <memory>
 
-using namespace std;
-
-struct Data
-{
-	string name;
-	unsigned int size;
-};
-
 int main()
 {
-	unique_ptr<Data> p_data1(new Data({"whale.park18", 3}));
-	unique_ptr<Data> p_data2;
+    std::unique_ptr<int> uPtrOriginal = std::make_unique<int>(1);
+    std::unique_ptr<int> uPtrTarget(nullptr);
 
-	cout << "Before move - owner: p_data1" << endl;
-	cout << "p_data1: " << p_data1.get() << ", p_data2: " << p_data2.get() << endl;
-	cout << endl;
+    std::cout << "[Before] owner: uPtrOriginal" << std::endl;
+    std::cout << "uPtrOriginal: " << uPtrOriginal.get() << ", uPtrTarget: " << uPtrTarget.get() << std::endl;
+    std::cout << '\n';
 
-	cout << "After move - owner: p_data2" << endl;
-	p_data2 = move(p_data1);
-	cout << "p_data1: " << p_data1.get() << ", p_data2: " << p_data2.get() << endl;
-	cout << endl;
+    uPtrTarget = std::move(uPtrOriginal);
+
+    std::cout << "[After] owner: uPtrTarget" << std::endl;
+    std::cout << "uPtrOriginal: " << uPtrOriginal.get() << ", uPtrTarget: " << uPtrTarget.get() << std::endl;
 }
-
-
 ```
 
-```plaintext
-Before move - owner: p_data1
-p_data1: 015F8BF0, p_data2: 00000000
+```
+[출력 결과]
 
-After move - owner: p_data2
-p_data1: 00000000, p_data2: 015F8BF0
+[Before] owner: uPtrOriginal
+uPtrOriginal: 00BF03F0, uPtrTarget: 00000000
+
+[After] owner: uPtrTarget
+uPtrOriginal: 00000000, uPtrTarget: 00BF03F0
 ```
 
-`unique_ptr`은 복사 생성자는 삭제되어 있지만, 이동 생성자는 가능합니다. 집이나 자동차같이 소유권을 이동시키는 개념과 동일하다 생각하면 됩니다.
-
-`std::move` 함수를 사용하여 `p_data1`의 소유권을 `p_data2`에게 이전합니다. 그러면 `p_data1`이 가리키던 주소는 0(`nullptr`)을 가리키게 되고 `p_data2`는 `p_data1`이 가리키던 주소를 가리키면서 소유권이 이전 된 것을 확인할 수 있습니다.
+`std::move` 함수를 사용해, `uPtrOriginal`의 소유권을 `uPtrTarget`에게 이전하였습니다. `uPtrOriginal`이 가리키던 주소는 널을 가리키게 되고 `uPtrTarget`은 `uPtrOriginal`이 가리키던 자원 객체를 가리키면서 소유권이 넘겨진 것을 확인할 수 있습니다.
 
 > 소유권이 이전된 포인터 객체를 댕글리 포인터(dangling pointer)라고 하며 이를 재참조할 때, 런타임 오류가 발생합니다. 따라서 소유권 이전은 댕글링 포인터를 다시 참조하지 않겠다는 확신을 갖고 이동시켜야 합니다.
 
 ### 함수 인자로 전달하기
 
-일반적으로 함수 인자를 전달하게 되면 복사가 발생하며 전달하게 됩니다. 하지만  `unique_ptr`은 위에서 설명했듯이 복사가 불가능합니다. 즉, `unique_ptr`은 함수 인자로 전달할 수 없다는 것입니다.
+일반적으로 함수 인자를 전달하게 되면 복사가 발생하며 전달하게 됩니다. 하지만  `std::unique_ptr`은 위에서 설명했듯이 복사가 불가능합니다. 즉, `std::unique_ptr`은 함수 인자로 전달할 수 없다는 것입니다.
 
 하지만 복사가 일어나지 않는 레퍼런스를 전달한다면 가능하지 않을까요?
 
@@ -210,165 +413,114 @@ p_data1: 00000000, p_data2: 015F8BF0
 #include <iostream>
 #include <memory>
 
-using namespace std;
-
-class Data
+class Person
 {
+private:
+    std::string mName;
+    int mAge;
+
 public:
-	Data()
-	{
-		cout << "생성자 호출" << endl;
-	}
+    Person(std::string name, int age) : mName(name), mAge(age)
+    {
+        std::cout << "생성자 호출" << std::endl;
+    }
 
-	~Data()
-	{
-		cout << "소멸자 호출" << endl;
-	}
+    ~Person()
+    {
+        std::cout << "소멸자 호출" << std::endl;
+    }
 
-	int get_size() { return *size; }
+    std::string GetName() { return mName; }
+    int GetAge() { return mAge; }
 };
 
-inline void do_something(unique_ptr<Data>& p_data)
+inline void PrintPersonalInfo(std::unique_ptr<Person>& uPtrReference)
 {
-	cout << "[do_something() 시작]" << endl;
+    std::cout << "이름: " << uPtrReference->GetName() << std::endl;
 
-	cout << "p_data.size: " << p_data->get_size() << endl;
-
-	cout << "[do_something() 종료]" << endl;
+    std::cout << "나이: " << uPtrReference->GetAge() << std::endl;
 }
 
 int main()
 {
-	cout << "[프로그램 시작]" << endl;
-
-	unique_ptr<Data> p_data(new Data());
-	do_something(p_data);
-
-	cout << "[프로그램 종료]" << endl;
+    std::unique_ptr<Person> uPtrOriginal = std::make_unique<Person>("whale", 10);
+    PrintPersonalInfo(uPtrOriginal);
 }
 ```
 
 ```
 [출력 결과]
-[프로그램 시작]
+
 생성자 호출
-[do_something() 시작]
-p_data.size: 100
-[do_something() 종료]
-[프로그램 종료]
+이름: whale
+나이: 10
 소멸자 호출
 ```
 
-포인터 객체를 레퍼런스로 전달할 경우 정상적으로 작동하는 것을 확인할 수 있습니다. `do_something` 함수의 `p_data` 인자는 레퍼런스이기 때문에 함수가 종료되도 객체를 파괴되지 않고 `main` 함수가 종료되면서 파괴는 것을 확인할 수도 있습니다.
+포인터 객체를 레퍼런스로 전달할 경우 정상적으로 작동하는 것을 확인할 수 있습니다. `PrintPersonalInfo` 함수의 `uPtrPerson` 인자는 레퍼런스이기 때문에 함수가 종료되도 객체를 파괴되지 않고 `main` 함수가 종료되면서 파괴는 것을 확인할 수도 있습니다.
 
 > 참고한 자료 중에서 레퍼런스이긴 하지만 유일하게 소유한다는 원칙을 벗어나기 때문에 문맥상 옳지 못하다고 의견을 내신 분도 있습니다.
 
-위에선 값으로 전달하지 못한다고 했지만 정확하게 말하자면 불가능 한 것은 아닙니다. 소유권을 `get` 멤버 함수를 사용해 포인터 주소값을 전달하거나 `std::move` 함수를 사용해 소유권을 넘기는 것입니다. 하지만 소유권을 넘기게 된다면 함수가 끝날 때, 자원을 반환한다는 문제가 발생합니다.
+> 위에선 값으로 전달하지 못한다고 했지만 정확하게 말하자면 불가능 한 것은 아닙니다. 소유권을 `get` 멤버 함수를 사용해 포인터 주소값을 전달하거나 `std::move` 함수를 사용해 소유권을 넘기는 것입니다. 하지만 소유권을 넘기게 된다면 함수가 끝날 때, 자원을 반환한다는 문제가 발생합니다.
 
-### `unique_ptr`를 원소로 갖는 컨테이너
+### 컨테이너의 원소
 
-`unique_ptr`을 컨테이너의 원소로 넣을 수 있을까요?
+C++는 `std::array`, `std::vector` 등의 다양한 STL을 지원하면서 C++로 프로그램을 개발하게 된다면 STL을 반드시 접하게 됩니다. 이 STL의 컨테이너의 원소로 `std::unique_ptr`를 저장할 수 있을까요?
 
-```cpp
-#include <iostream>
-#include <memory>
-#include <vector>
+기본적으로 `std::vector`의 `push_back` 멤버 함수 같이 컨테이너에 원소를 넣게 된다면 복사 과정이 발생하게 됩니다. 즉, `std::unique_ptr`는 컨테이너의 원소가 될 수 없다는 것을 의미합니다. 하지만 `std::move` 함수로 소유권을 이전 시킨다면 컨테이너의 원소로 넣을 수 있습니다.
 
-using namespace std;
-
-class Data
-{
-public:
-	Data()
-	{
-		cout << "생성자 호출" << endl;
-	}
-
-	~Data()
-	{
-		cout << "소멸자 호출" << endl;
-	}
-};
-
-int main()
-{
-	vector<unique_ptr<Data>> vec_unique;
-	unique_ptr<Data> p_unique = make_unique<Data>();
-
-	vec_unique.push_back(p_unique);
-}
-```
-
-```
-[컴파일 오류]
-오류	C2280	'std::unique_ptr<Data,std::default_delete<Data>>::unique_ptr(const std::unique_ptr<Data,std::default_delete<Data>> &)': 삭제된 함수를 참조하려고 합니다.
-```
-
-컴파일을 시도 했다면 삭제된 함수를 참조하려 했다는 오류 메시지가 출력됩니다. 당연한 결과입니다. `unique_ptr`은 명시적으로 복사 생성자를 삭제했지만 `vector`의 `push_back` 멤버 함수는 전달되는 인자를 복사하여 전달하기 때문입니다.
-
-이를 해결하기 위한 첫 번째 방법으로 소유권을 넘기는 것입니다.
+다른 방법으로 `std::vecto`의 `emplace_back` 멤버 함수 같이 컨테이너 내부에서 생성하게 된다면 복사 과정이 발생하지 않기 때문에 컨테이너의 원소가 될 수 있습니다.
 
 ```cpp
 #include <iostream>
 #include <memory>
 #include <vector>
 
-using namespace std;
-
-class Data
+class Person
 {
-public:
-	Data()
-	{
-		cout << "생성자 호출" << endl;
-	}
+private:
+    std::string mName;
+    int mAge;
 
-	~Data()
-	{
-		cout << "소멸자 호출" << endl;
-	}
+public:
+    Person(std::string name, int age) : mName(name), mAge(age)
+    {
+        std::cout << "생성자 호출" << std::endl;
+    }
+
+    ~Person()
+    {
+        std::cout << "소멸자 호출" << std::endl;
+    }
+
+    std::string GetName() { return mName; }
+    int GetAge() { return mAge; }
 };
+
+void funcDeleter(Person* pPerson)
+{
+    std::cout << "함수 커스텀 소멸자 호출" << std::endl;
+
+    delete pPerson;
+}
 
 int main()
 {
-	vector<unique_ptr<Data>> vec_unique;
-	unique_ptr<Data> p_unique = make_unique<Data>();
+    std::vector<std::unique_ptr<Person>> vec;
 
-	vec_unique.push_back(move(p_unique));
+    std::unique_ptr<Person> uPtr = std::make_unique<Person>("whale", 10);
+
+    vec.push_back(std::move(uPtr));
+    vec.emplace_back(new Person("park18", 20));
+
+    for (auto& item : vec)
+    {
+        std::cout << "name: " << item->GetName() << ", age: " << item->GetAge() << std::endl;
+    }
 }
 ```
 
-두 번째 방법으로 `vector`의 `emplace_back` 멤버 함수를 사용하는 것입니다.
-
-위의 방법은 이미 생성한 포인터 객체를 컨테이너의 원소를 넣을 때, 사용되는 방법입니다. `vector`의 `emplace_back` 멤버 함수는 내부에서 자원 객체를 생성하고 컨테이너에 넣기 때문에 과정을 줄일 수 있습니다.
-
-```cpp
-#include <iostream>
-#include <memory>
-#include <vector>
-
-using namespace std;
-
-class Data
-{
-public:
-	Data()
-	{
-		cout << "생성자 호출" << endl;
-	}
-
-	~Data()
-	{
-		cout << "소멸자 호출" << endl;
-	}
-};
-
-int main()
-{
-	vector<unique_ptr<Data>> vec_unique;
-	vec_unique.emplace_back(new Data());
-}
-```
+범위 기반 for문은 기본적으로 복사된 원소에 접근하는 것이기 때문에 사용하려면 레퍼런스로 지정해야합니다. 일반 for문은 인덱스를 이용해 직접 접근하는 것이기 때문에 평소처럼 사용하면 됩니다.
 
 # 참고
 
@@ -388,6 +540,12 @@ int main()
 
 [식빵맘(ansohxxn)](https://ansohxxn.github.io/cpp/chapter15-5/#unique_ptr%EC%9D%98-%ED%95%A8%EC%88%98%EB%93%A4)
 
+[duragon.gitbooks.io](https://duragon.gitbooks.io/c-11/content/chapter8.html)
+
+[gamdekong](https://gamdekong.tistory.com/88)
+
 [코드없는 프로그래밍](https://www.youtube.com/watch?v=oNqm04uL3v8)
 
 [포프TV](https://www.youtube.com/watch?v=MGVSPZoOchE)
+
+[Effective Modern C++](https://ebook.insightbook.co.kr/book/117)
