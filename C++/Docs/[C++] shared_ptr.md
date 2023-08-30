@@ -27,13 +27,13 @@
 
 `std::shared_ptr`는 생 포인터의 두 배의 크기이고 그 중 하나는 참조 개수를 저장하기 위한 것이라 설명했습니다. 정확히 설명하자면 참조 개수는 제어 블록(Control Block)이라 불리는 더 큰 자료구조에 저장되는 하나의 목록이고 `std::shared_ptr`는 이 제어 블록을 가리킵니다. 이 제어 목록에는 참조 개수뿐만 아니라 커스텀 삭제자, 약한 개수(weak count) 등이 저장됩니다. 이러한 구현 방법이 제일 이상적이라 생각됩니다. 만약 각 항목마다 별도로 관리하게 된다면 `std::shared_ptr`의 크기는 계속 커지기만 할 것입니다. 하지만 제어 블록에서 모두 관리하기 때문에 `std::unique_ptr`처럼 커스텀 삭제자를 지정해도 `std::shared_ptr`의 크기가 변하지 않습니다.
 
-![std::shared_ptr 도식화](https://learn.microsoft.com/ko-kr/cpp/cpp/media/shared_ptr.png?view=msvc-170)
+![std::shared_ptr 도식화](../../Resources/C++/Docs/shared_ptr/shared_ptr%20도식화.jpg)
 
 ## 사용법
 
 > `std::shared_ptr`를 사용하기 위해선 `<memory>` 헤더를 포함해야 합니다.
 
-## 생성자를 이용한 생성 및 초기화
+### 생성자를 이용한 생성 및 초기화
 
 * 자원 객체 초기화
 * 소멸자 초기화
@@ -147,7 +147,7 @@ int main()
 소멸자 호출
 ```
 
-## `std::make_shared`를 사용한 생성 및 초기화
+### `std::make_shared`를 사용한 생성 및 초기화
 
 `std::shared_ptr`도 `std::unique_ptr`과 동일한 이유로 생성자(정확히는 생 포인터를 넘겨 받는 생성자)를 이용한 초기화 방법을 권장하지 않습니다. `std::shared_ptr`는 생 포인터를 인자로 넘겨 받는다면 첫 번째 생성으로 판단하고 제어 블록을 생성합니다. 즉, 서로 다른 포인터 객체의 생성자가 같은 자원 객체를 가리키는 생 포인터를 넘겨받는다면 서로 다른 제어 블록을 갖게 되는 문제가 발생하게 됩니다.
 
